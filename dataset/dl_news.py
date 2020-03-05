@@ -5,13 +5,20 @@ import sqlite3
 import re
 
 from util import mw_format_date, clean_html_text, ignore_this_text
+from config import SYMBOLS
 
 
 def fetch_meta(symbol):
     url = 'https://www.marketwatch.com/investing/stock/{}/profile'.format(symbol)
     html = requests.get(url).text
-    desc = re.search(r'<div class="full">\s+<p>([^<]+?)<\/p>', html).group(1).strip()
-    return (symbol.upper(), desc)
+    try:
+        name = re.search(r'<p class="companyname">([^<]+?)<\/p>', html).group(1).strip()
+        desc = re.search(r'<div class="full">\s+<p>([^<]+?)<\/p>', html).group(1).strip()
+        industry = re.search(r'<p class="column">Industry<\/p>\s+<p class="data lastcolumn">([^<]+?)<\/p>', html).group(1).strip()
+        sector = re.search(r'<p class="column">Sector<\/p>\s+<p class="data lastcolumn">([^<]+?)<\/p>', html).group(1).strip()
+        return (symbol.upper(), name, industry, sector, desc)
+    except AttributeError:
+        return (symbol.upper(), None, None, None, None)
 
 
 def fetch_iter_news(symbol, date=None):
@@ -58,21 +65,34 @@ def fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
-def dl_data_for_symbol(symbol, limit=float('inf')):
+def dl_data_for_symbol(symbol, limit=10000):
     (conn, cur) = sql_connect()
-    _, desc = fetch_meta(symbol)
+    symb, name, industry, sector, desc = fetch_meta(symbol)
+    if name is None:
+        print('No data for:', symbol)
+        return
+    else:
+        print('Scraping:', symbol)
+    cur.execute("""
+        INSERT OR IGNORE INTO companys
+         (symbol, name, industry, sector, desc)
+        VALUES
+         (?,?,?,?,?)
+    """, (symb, name, industry, sector, desc))
     for i, (date, url) in enumerate(fetch_iter_news(symbol)):
+        exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
+        if exists:
+            continue
         (headline, content) = fetch_article(url)
         if headline is None:
             continue
         cur.execute("""
         INSERT OR IGNORE INTO articles
-         (headline, date, content, url)
+         (symbol, headline, date, content, url)
         VALUES
-         (?,?,?,?)
-        """, (headline, date, content, url))
-        if i % 10 == 0:
-            (conn, cur) = sql_save(conn, cur, restart=True)
+         (?,?,?,?,?)
+        """, (symb, headline, date, content, url))
+        (conn, cur) = sql_save(conn, cur, restart=True)
         if i > limit:
             break
     sql_save(conn, cur)
@@ -80,7 +100,7 @@ def dl_data_for_symbol(symbol, limit=float('inf')):
 
 def sql_connect(try_init=True):
     conn = sqlite3.connect('db.sqlite')
-    conn.execute("PRAGMA busy_timeout = 60000")
+    conn.execute("PRAGMA busy_timeout = 120000")
     cur = conn.cursor()
     try:
         cur.execute("""
@@ -90,8 +110,16 @@ def sql_connect(try_init=True):
             date VARCHAR(10),
             content TEXT,
             url VARCHAR(255) UNIQUE
-        )
-        """)
+        )""")
+        cur.execute("""
+        CREATE TABLE companys (
+            company_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol VARCHAR(10) UNIQUE,
+            name VARCHAR(255),
+            industry VARCHAR(255),
+            sector VARCHAR(255),
+            desc TEXT
+        )""")
         conn.commit()
     except sqlite3.OperationalError:
         pass
@@ -108,12 +136,17 @@ def sql_save(conn, cur, restart=False):
 
 def main():
 
-    tickers = ['AAPL', 'AMD']
-    pool = Pool(processes=4)
-    pool.map(dl_data_for_symbol, tickers)
+    def print_num_articles():
+        (conn, cur) = sql_connect()
+        print('Articles cnt:', cur.execute('SELECT COUNT(article_id) FROM articles').fetchone()[0])
+        sql_save(conn, cur)
 
-    (conn, cur) = sql_connect()
-    print(cur.execute('SELECT COUNT(article_id) FROM articles').fetchall())
+    print_num_articles()
+
+    pool = Pool(processes=4)
+    pool.map(dl_data_for_symbol, SYMBOLS)
+
+    print_num_articles()
 
 
 if __name__ == "__main__":
