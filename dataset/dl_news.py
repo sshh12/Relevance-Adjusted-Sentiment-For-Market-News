@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta
 from multiprocessing import Pool
 import requests
-import sqlite3
 import re
 
-from util import mw_format_date, clean_html_text, ignore_this_text
-from config import SYMBOLS
+from util import (
+    mw_format_date, clean_html_text, ignore_this_text,
+    sql_connect, sql_merge, sql_add_company, sql_add_article
+)
+from config import SYMBOLS, MAX_PROCS
 
 
 def fetch_meta(symbol):
@@ -65,88 +67,62 @@ def fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
-def dl_data_for_symbol(symbol, limit=10000):
-    (conn, cur) = sql_connect()
+def dl_data_for_symbol(symbol, limit=5, batch_size=50):
+
+    (conn, cur) = sql_connect(prefix=symbol)
     symb, name, industry, sector, desc = fetch_meta(symbol)
+
     if name is None:
         print('No data for:', symbol)
         return
     else:
         print('Scraping:', symbol)
-    cur.execute("""
-        INSERT OR IGNORE INTO companys
-         (symbol, name, industry, sector, desc)
-        VALUES
-         (?,?,?,?,?)
-    """, (symb, name, industry, sector, desc))
-    for i, (date, url) in enumerate(fetch_iter_news(symbol)):
-        exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
-        if exists:
-            continue
-        (headline, content) = fetch_article(url)
-        if headline is None:
-            continue
-        cur.execute("""
-        INSERT OR IGNORE INTO articles
-         (symbol, headline, date, content, url)
-        VALUES
-         (?,?,?,?,?)
-        """, (symb, headline, date, content, url))
-        (conn, cur) = sql_save(conn, cur, restart=True)
-        if i > limit:
-            break
-    sql_save(conn, cur)
 
+    sql_add_company(cur, (symb, name, industry, sector, desc))
 
-def sql_connect(try_init=True):
-    conn = sqlite3.connect('db.sqlite')
-    conn.execute("PRAGMA busy_timeout = 120000")
-    cur = conn.cursor()
+    batch = []
+    found = 0
     try:
-        cur.execute("""
-        CREATE TABLE articles (
-            article_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            headline VARCHAR(255),
-            date VARCHAR(10),
-            content TEXT,
-            url VARCHAR(255) UNIQUE
-        )""")
-        cur.execute("""
-        CREATE TABLE companys (
-            company_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol VARCHAR(10) UNIQUE,
-            name VARCHAR(255),
-            industry VARCHAR(255),
-            sector VARCHAR(255),
-            desc TEXT
-        )""")
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    return (conn, cur)
-
-
-def sql_save(conn, cur, restart=False):
-    conn.commit()
+        for date, url in fetch_iter_news(symbol):
+            exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
+            if not exists:
+                (headline, content) = fetch_article(url)
+                if headline is None:
+                    continue
+                batch.append((symbol, headline, date, content, url))
+                found += 1
+            if len(batch) == batch_size or found > limit:
+                for item in batch:
+                    sql_add_article(cur, item)
+                batch = []
+                conn.commit()
+                if found > limit:
+                    break
+    except KeyboardInterrupt:
+        print('Interrupted!')
     conn.close()
-    if restart:
-        return sql_connect(try_init=False)
-    return (None, None)
+
+
+
 
 
 def main():
 
-    def print_num_articles():
+    def print_db_info():
         (conn, cur) = sql_connect()
-        print('Articles cnt:', cur.execute('SELECT COUNT(article_id) FROM articles').fetchone()[0])
-        sql_save(conn, cur)
+        print('Articles:', cur.execute('SELECT COUNT(*) FROM articles').fetchone()[0])
+        print('Companies:', cur.execute('SELECT COUNT(*) FROM companies').fetchone()[0])
+        conn.close()
 
-    print_num_articles()
+    print_db_info()
 
-    pool = Pool(processes=4)
-    pool.map(dl_data_for_symbol, SYMBOLS)
+    pool = Pool(processes=MAX_PROCS)
+    pool.map(dl_data_for_symbol, ['AAPL', 'AMD'])
 
-    print_num_articles()
+    print('Merging...')
+    sql_merge(['AAPL', 'AMD'])
+
+    print_db_info()
 
 
 if __name__ == "__main__":

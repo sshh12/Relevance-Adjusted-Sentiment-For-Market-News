@@ -1,4 +1,8 @@
+import sqlite3
 import re
+import os
+
+from config import DATABASE_URI
 
 
 IGNORE_TEXT = [
@@ -74,3 +78,72 @@ def mw_format_date(date):
     if parts[3].startswith("0"):
         parts[3] = parts[3][1:]
     return '+'.join(parts)
+
+
+def sql_connect(prefix='', try_init=True):
+    actual_uri = DATABASE_URI
+    if prefix:
+        b, a = DATABASE_URI.split('.')
+        actual_uri = b + '-' + prefix + '.' + a
+    conn = sqlite3.connect(actual_uri)
+    conn.execute("PRAGMA busy_timeout = 120000")
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+        CREATE TABLE articles (
+            article_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol VARCHAR(10),
+            headline VARCHAR(255),
+            date VARCHAR(10),
+            content TEXT,
+            url VARCHAR(255) UNIQUE
+        )""")
+        cur.execute("""
+        CREATE TABLE companies (
+            company_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol VARCHAR(10) UNIQUE,
+            name VARCHAR(255),
+            industry VARCHAR(255),
+            sector VARCHAR(255),
+            desc TEXT
+        )""")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    return (conn, cur)
+
+
+def sql_add_article(cur, params):
+    assert len(params) == 5, 'Bad Article'
+    cur.execute("""
+    INSERT OR IGNORE INTO articles
+        (symbol, headline, date, content, url)
+        VALUES
+        (?,?,?,?,?)
+    """, params)
+
+
+def sql_add_company(cur, params):
+    assert len(params) == 5, 'Bad Company'
+    cur.execute("""
+    INSERT OR IGNORE INTO companies
+        (symbol, name, industry, sector, desc)
+        VALUES
+        (?,?,?,?,?)
+    """, params)
+
+
+def sql_merge(prefixes, delete=False):
+    (conn, cur) = sql_connect()
+    for prefix in prefixes:
+        (conn2, cur2) = sql_connect(prefix=prefix)
+        cur2.execute('SELECT * FROM companies') 
+        for row in cur2:
+            sql_add_company(cur, row[1:])
+        cur2.execute('SELECT * FROM articles') 
+        for row in cur2:
+            sql_add_article(cur, row[1:])
+        conn2.close()
+        if delete:
+            os.remove(prefix + '-' + DATABASE_URI)
+    conn.commit()
