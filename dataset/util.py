@@ -7,19 +7,19 @@ from dataset.config import DATABASE_URI
 
 
 IGNORE_TEXT = [
-    'Read: ',
-    'Now read: ',
-    'See: ',
-    'And see: ',
-    'Read more: ',
-    'Check out: ',
+    'Read:',
+    'Now read:',
+    'See:',
+    'And see:',
+    'Read more:',
+    'Check out:',
     'Related: ',
     'An expanded version of this',
-    'Also: ',
-    'See now: ',
-    'Don\'t miss: ',
-    'See also: ',
-    'For more news: ',
+    'Also:',
+    'See now:',
+    'Don\'t miss:',
+    'See also:',
+    'For more news:',
     'Full coverage at ',
     'Additional reporting by ',
     'Sign up for ',
@@ -29,7 +29,8 @@ IGNORE_TEXT = [
     'This report originally',
     'click on this',
     'you understand and agree that we',
-    'Recommended: '
+    'Recommended:',
+    'Related:'
 ]
 
 
@@ -97,7 +98,8 @@ def sql_connect(group='', try_init=True):
             headline VARCHAR(255),
             date VARCHAR(10),
             content TEXT,
-            url VARCHAR(255) UNIQUE
+            url VARCHAR(255),
+            UNIQUE(symbol, url)
         )""")
         cur.execute("""
         CREATE TABLE companies (
