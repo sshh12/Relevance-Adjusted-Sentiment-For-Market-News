@@ -1,8 +1,9 @@
 import sqlite3
+import glob
 import re
 import os
 
-from config import DATABASE_URI
+from dataset.config import DATABASE_URI
 
 
 IGNORE_TEXT = [
@@ -80,12 +81,12 @@ def mw_format_date(date):
     return '+'.join(parts)
 
 
-def sql_connect(prefix='', try_init=True):
+def sql_connect(group='', try_init=True):
     actual_uri = DATABASE_URI
-    if prefix:
+    if group:
         b, a = DATABASE_URI.split('.')
-        actual_uri = b + '-' + prefix + '.' + a
-    conn = sqlite3.connect(actual_uri)
+        actual_uri = b + '-' + group + '.' + a
+    conn = sqlite3.connect(os.path.join('data', actual_uri))
     conn.execute("PRAGMA busy_timeout = 120000")
     cur = conn.cursor()
     try:
@@ -133,10 +134,13 @@ def sql_add_company(cur, params):
     """, params)
 
 
-def sql_merge(prefixes, delete=False):
+def sql_merge(groups=None, delete=False):
+    if groups is None:
+        groups = [os.path.splitext(os.path.basename(fn))[0].replace('db-', '') 
+            for fn in glob.glob(os.path.join('data', 'db-*.sqlite'))]
     (conn, cur) = sql_connect()
-    for prefix in prefixes:
-        (conn2, cur2) = sql_connect(prefix=prefix)
+    for group in groups:
+        (conn2, cur2) = sql_connect(group=group)
         cur2.execute('SELECT * FROM companies') 
         for row in cur2:
             sql_add_company(cur, row[1:])
@@ -145,5 +149,5 @@ def sql_merge(prefixes, delete=False):
             sql_add_article(cur, row[1:])
         conn2.close()
         if delete:
-            os.remove(prefix + '-' + DATABASE_URI)
+            os.remove(group + '-' + DATABASE_URI)
     conn.commit()

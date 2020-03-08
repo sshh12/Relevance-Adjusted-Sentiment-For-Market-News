@@ -1,13 +1,14 @@
 from datetime import datetime, timedelta
 from multiprocessing import Pool
 import requests
+import signal
 import re
 
-from util import (
+from dataset.util import (
     mw_format_date, clean_html_text, ignore_this_text,
     sql_connect, sql_merge, sql_add_company, sql_add_article
 )
-from config import SYMBOLS, MAX_PROCS
+from dataset.config import SYMBOLS, MAX_PROCS
 
 
 def fetch_meta(symbol):
@@ -28,17 +29,24 @@ def fetch_iter_news(symbol, date=None):
     if date is None:
         date = datetime.now()
 
-    while True:
+    bad_attempts = 0
+
+    while bad_attempts < 365:
         form_date = mw_format_date(date)
         url = 'https://www.marketwatch.com/news/headline/getheadlines?ticker={0}&dateTime={1}&countryCode=US&count=16&channelName=%2Fnews%2Flatest%2Fcompany%2Fus%{0}'.format(symbol, form_date)
         resp = requests.get(url).json()
         for art in resp:
+            found = True
             art_data = (
                 date.strftime('%Y-%m-%d'),
                 "https://www.marketwatch.com/story" + art['SeoHeadlineFragment']
             )
             yield art_data
         date = date - timedelta(days=1)
+        if len(resp) > 0:
+            bad_attempts = 0
+        else:
+            bad_attempts += 1
 
 
 def fetch_article(url):
@@ -67,9 +75,9 @@ def fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
-def dl_data_for_symbol(symbol, limit=5, batch_size=50):
+def dl_data_for_symbol(symbol, limit=10000, batch_size=50):
 
-    (conn, cur) = sql_connect(prefix=symbol)
+    (conn, cur) = sql_connect(group=symbol)
     symb, name, industry, sector, desc = fetch_meta(symbol)
 
     if name is None:
@@ -82,28 +90,27 @@ def dl_data_for_symbol(symbol, limit=5, batch_size=50):
 
     batch = []
     found = 0
-    try:
-        for date, url in fetch_iter_news(symbol):
-            exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
-            if not exists:
-                (headline, content) = fetch_article(url)
-                if headline is None:
-                    continue
-                batch.append((symbol, headline, date, content, url))
-                found += 1
-            if len(batch) == batch_size or found > limit:
-                for item in batch:
-                    sql_add_article(cur, item)
-                batch = []
-                conn.commit()
-                if found > limit:
-                    break
-    except KeyboardInterrupt:
-        print('Interrupted!')
+    for date, url in fetch_iter_news(symbol):
+        exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
+        if not exists:
+            (headline, content) = fetch_article(url)
+            if headline is None:
+                continue
+            batch.append((symbol, headline, date, content, url))
+            print(url)
+            found += 1
+        if len(batch) == batch_size or found > limit:
+            for item in batch:
+                sql_add_article(cur, item)
+            batch = []
+            conn.commit()
+            if found > limit:
+                break
     conn.close()
 
 
-
+def _init_worker():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def main():
@@ -116,11 +123,16 @@ def main():
 
     print_db_info()
 
-    pool = Pool(processes=MAX_PROCS)
-    pool.map(dl_data_for_symbol, ['AAPL', 'AMD'])
+    pool = Pool(MAX_PROCS, initializer=_init_worker)
+    try:
+        pool.map(dl_data_for_symbol, SYMBOLS)
+    except KeyboardInterrupt:
+        pool.terminate()
+        pool.join()
+        print('Interrupted!')
 
     print('Merging...')
-    sql_merge(['AAPL', 'AMD'])
+    sql_merge()
 
     print_db_info()
 
