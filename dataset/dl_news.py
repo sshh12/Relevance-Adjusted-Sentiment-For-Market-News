@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import requests
+import time
 import re
 
 from util import (
@@ -89,15 +90,24 @@ def salpha_fetch_iter_news(symbol, date=None):
 
     bad_attempts = 0
 
-    UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36'
+    UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36'
+    sess = requests.Session()
+    def get_content(url):
+        return sess.get(url, headers={'user-agent': UA}).text
+
+    get_content('https://seekingalpha.com/symbol/{}'.format(symbol))
 
     while bad_attempts < 365:
+
         form_date = salpha_format_date(date)
         url = 'https://seekingalpha.com/symbol/{}/news/more_latest_news?page={}&new_layout=true'.format(symbol, form_date)
-        print(url)
-        resp = requests.get(url, headers={
-            'User-Agent': UA
-        }).text
+        resp = get_content(url)
+
+        if 'Access to this page has been denied' in resp:
+            time.sleep(5)
+            bad_attempts += 1
+            continue
+
         art_matches = re.findall(r'<div class=\\"symbol_article\\" time=\\"(\d+)\\"><a href=\\"([^"]+?)\\" sasource=\\"\w+?\\">([^<]+?)<\/a><\/div>', resp)
         for art_m in art_matches:
             date = art_m[0]
@@ -176,14 +186,32 @@ def reut_fetch_article(url):
 
 def sa_fetch_article(url):
 
-    print(url)
     UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36'
     
-    article_html = resp = requests.get(url, headers={
+    article_html = requests.get(url, headers={
         'User-Agent': UA
     }).text
+    if 'Access to this page has been denied' in article_html:
+        time.sleep(5)
+        return (None, "")
 
-    asdasd
+    headline_match = re.search(r'itemprop="headline">([^<]+)<', article_html)
+    if not headline_match:
+        return (None, "")
+    headline = clean_html_text(headline_match.group(1))
+
+    if ignore_this_text(headline, mode='salpha-headline'):
+        return (None, "")
+
+    text = []
+    for bullet_match in re.finditer(r'<p class="bullets_li">([\s\S]+?)<\/p>', article_html):
+        bullet_text = clean_html_text(bullet_match.group(1))
+        if ignore_this_text(bullet_text, mode='salpha'):
+            continue
+        text.append(bullet_text)
+
+    if len(text) < 2:
+        return (None, "")
 
     return (headline, "\n\n\n".join(text))
 
@@ -203,7 +231,7 @@ def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
         print('No data for:', symbol)
         return
     else:
-        print('Scraping:', symbol)
+        print('Scraping:', symbol, 'from', source)
 
     sql_add_company(cur, (symb, name, industry, sector, desc))
 
@@ -219,7 +247,6 @@ def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
             batch.append((symbol, headline, date, content, url, source))
             print(url)
             found += 1
-            break
         if len(batch) == batch_size or found > limit:
             for item in batch:
                 sql_add_article(cur, item)
@@ -241,14 +268,12 @@ def main():
 
     print_stats()
 
-    dl_data_for_symbol('AAPL', 'seekingalpha')
-
-    # n = len(SYMBOLS)
-    # runs = zip(
-    #     SYMBOLS + SYMBOLS,
-    #     ['reuters'] * n + ['marketwatch'] * n
-    # )
-    # run_multi(dl_data_for_symbol, runs, shuffle=True)
+    n = len(SYMBOLS)
+    runs = zip(
+        SYMBOLS + SYMBOLS + SYMBOLS,
+        ['reuters'] * n + ['marketwatch'] * n + ['seekingalpha'] * n
+    )
+    run_multi(dl_data_for_symbol, runs, shuffle=True)
 
     print('Merging...')
     sql_merge()
