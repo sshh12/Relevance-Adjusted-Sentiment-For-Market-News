@@ -1,17 +1,16 @@
 from datetime import datetime, timedelta
-from multiprocessing import Pool
 import requests
-import signal
 import re
 
 from util import (
-    mw_format_date, clean_html_text, ignore_this_text,
-    sql_connect, sql_merge, sql_add_company, sql_add_article
+    mw_format_date, reut_format_date, clean_html_text, ignore_this_text,
+    sql_connect, sql_merge, sql_add_company, sql_add_article, run_multi,
+    salpha_format_date
 )
 from config import SYMBOLS, MAX_PROCS
 
 
-def mw_fetch_meta(symbol):
+def fetch_meta(symbol):
     url = 'https://www.marketwatch.com/investing/stock/{}/profile'.format(symbol)
     html = requests.get(url).text
     try:
@@ -33,10 +32,10 @@ def mw_fetch_iter_news(symbol, date=None):
 
     while bad_attempts < 365:
         form_date = mw_format_date(date)
-        url = 'https://www.marketwatch.com/news/headline/getheadlines?ticker={0}&dateTime={1}&countryCode=US&count=16&channelName=%2Fnews%2Flatest%2Fcompany%2Fus%{0}'.format(symbol, form_date)
+        url = 'https://www.marketwatch.com/news/headline/getheadlines?'\
+            + 'ticker={0}&dateTime={1}&countryCode=US&count=16&channelName=%2Fnews%2Flatest%2Fcompany%2Fus%{0}'.format(symbol, form_date)
         resp = requests.get(url).json()
         for art in resp:
-            found = True
             art_data = (
                 date.strftime('%Y-%m-%d'),
                 'https://www.marketwatch.com/story' + art['SeoHeadlineFragment']
@@ -47,6 +46,73 @@ def mw_fetch_iter_news(symbol, date=None):
             bad_attempts = 0
         else:
             bad_attempts += 1
+
+
+def reut_fetch_iter_news(symbol, date=None):
+
+    if date is None:
+        date = datetime.now()
+
+    bad_attempts = 0
+
+    while bad_attempts < 365:
+        form_date = mw_format_date(date)
+        url = 'https://wireapi.reuters.com/v8/feed/rcom/us/marketnews/ric:{}.OQ?until={}'.format(symbol, form_date)
+        resp = requests.get(url).json()
+        arts = resp['wireitems']
+        for art in arts:
+            date_id = art['wireitem_id']
+            action = None
+            for template in art['templates']:
+                if 'template_action' in template:
+                    action = template['template_action']
+                    break
+            if action is None:
+                continue
+            art_date = datetime.fromtimestamp(int(date_id) / 1e9)
+            art_data = (
+                art_date.strftime('%Y-%m-%d'),
+                action['url']
+            )
+            yield art_data
+        date = date - timedelta(days=2)
+        if len(arts) > 0:
+            bad_attempts = 0
+        else:
+            bad_attempts += 1
+
+
+def salpha_fetch_iter_news(symbol, date=None):
+
+    if date is None:
+        date = datetime.now()
+
+    bad_attempts = 0
+
+    UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36'
+
+    while bad_attempts < 365:
+        form_date = salpha_format_date(date)
+        url = 'https://seekingalpha.com/symbol/{}/news/more_latest_news?page={}&new_layout=true'.format(symbol, form_date)
+        print(url)
+        resp = requests.get(url, headers={
+            'User-Agent': UA
+        }).text
+        art_matches = re.findall(r'<div class=\\"symbol_article\\" time=\\"(\d+)\\"><a href=\\"([^"]+?)\\" sasource=\\"\w+?\\">([^<]+?)<\/a><\/div>', resp)
+        for art_m in art_matches:
+            date = art_m[0]
+            path = art_m[1]
+            art_date = datetime.fromtimestamp(int(date))
+            art_data = (
+                art_date.strftime('%Y-%m-%d'),
+                'https://seekingalpha.com' + path
+            )
+            yield art_data
+        if len(art_matches) > 0:
+            bad_attempts = 0
+        else:
+            bad_attempts += 1
+        date = date - timedelta(days=3)
 
 
 def mw_fetch_article(url):
@@ -78,10 +144,60 @@ def mw_fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
-def dl_mw_data_for_symbol(symbol, limit=10000, batch_size=50):
+def reut_fetch_article(url):
+    
+    article_html = requests.get(url).text
+
+    headline_match = re.search(r'ArticleHeader_headline">([^<]+)<\/h1>', article_html)
+    if headline_match is None:
+        return (None, "")
+    headline = clean_html_text(headline_match.group(1))
+
+    text = []
+    try:
+        start_idx = article_html.index('StandardArticleBody_body')
+    except ValueError:
+        return (None, "")
+    try:
+        end_idx = article_html.index('Attribution_container')
+    except ValueError:
+        end_idx = len(article_html)
+    content_html = article_html[start_idx:end_idx]
+    for paragraph_match in re.finditer(r'<p>([^<]+)<\/p>', content_html):
+        paragraph = clean_html_text(paragraph_match.group(1))
+        if not ignore_this_text(paragraph):
+            text.append(paragraph)
+
+    if len(text) == 0:
+        return (None, "")
+
+    return (headline, "\n\n\n".join(text))
+
+
+def sa_fetch_article(url):
+
+    print(url)
+    UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36'
+    
+    article_html = resp = requests.get(url, headers={
+        'User-Agent': UA
+    }).text
+
+    asdasd
+
+    return (headline, "\n\n\n".join(text))
+
+
+def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
+
+    (iter_news, fetch_article) = {
+        'marketwatch': (mw_fetch_iter_news, mw_fetch_article),
+        'reuters': (reut_fetch_iter_news, reut_fetch_article),
+        'seekingalpha': (salpha_fetch_iter_news, sa_fetch_article)
+    }[source]
 
     (conn, cur) = sql_connect(group=symbol)
-    symb, name, industry, sector, desc = mw_fetch_meta(symbol)
+    symb, name, industry, sector, desc = fetch_meta(symbol)
 
     if name is None:
         print('No data for:', symbol)
@@ -93,15 +209,17 @@ def dl_mw_data_for_symbol(symbol, limit=10000, batch_size=50):
 
     batch = []
     found = 0
-    for date, url in mw_fetch_iter_news(symbol):
-        exists = (cur.execute('SELECT COUNT(url) FROM articles WHERE url = ?', (url,)).fetchone()[0] == 1)
+    for date, url in iter_news(symbol):
+        exists = (cur.execute('SELECT COUNT(url) FROM articles WHERE url = ? AND symbol = ?', 
+            (url, symbol)).fetchone()[0] == 1)
         if not exists:
-            (headline, content) = mw_fetch_article(url)
+            (headline, content) = fetch_article(url)
             if headline is None:
                 continue
-            batch.append((symbol, headline, date, content, url, 'marketwatch'))
+            batch.append((symbol, headline, date, content, url, source))
             print(url)
             found += 1
+            break
         if len(batch) == batch_size or found > limit:
             for item in batch:
                 sql_add_article(cur, item)
@@ -112,32 +230,30 @@ def dl_mw_data_for_symbol(symbol, limit=10000, batch_size=50):
     conn.close()
 
 
-def _init_worker():
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
+def print_stats():
+    (conn, cur) = sql_connect()
+    print('Articles:', cur.execute('SELECT COUNT(*) FROM articles').fetchone()[0])
+    print('Companies:', cur.execute('SELECT COUNT(*) FROM companies').fetchone()[0])
+    conn.close()
 
 
 def main():
 
-    def print_db_info():
-        (conn, cur) = sql_connect()
-        print('Articles:', cur.execute('SELECT COUNT(*) FROM articles').fetchone()[0])
-        print('Companies:', cur.execute('SELECT COUNT(*) FROM companies').fetchone()[0])
-        conn.close()
+    print_stats()
 
-    print_db_info()
+    dl_data_for_symbol('AAPL', 'seekingalpha')
 
-    # pool = Pool(MAX_PROCS, initializer=_init_worker)
-    # try:
-    #     pool.map(dl_mw_data_for_symbol, SYMBOLS)
-    # except KeyboardInterrupt:
-    #     pool.terminate()
-    #     pool.join()
-    #     print('Interrupted!')
+    # n = len(SYMBOLS)
+    # runs = zip(
+    #     SYMBOLS + SYMBOLS,
+    #     ['reuters'] * n + ['marketwatch'] * n
+    # )
+    # run_multi(dl_data_for_symbol, runs, shuffle=True)
 
     print('Merging...')
-    # sql_merge()
+    sql_merge()
 
-    print_db_info()
+    print_stats()
 
 
 if __name__ == "__main__":

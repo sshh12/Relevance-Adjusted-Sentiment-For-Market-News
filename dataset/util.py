@@ -1,9 +1,12 @@
+from multiprocessing import Pool
+import random
 import sqlite3
+import signal
 import glob
 import re
 import os
 
-from config import DATABASE_URI
+from config import DATABASE_URI, MAX_PROCS
 
 
 IGNORE_TEXT = [
@@ -30,7 +33,36 @@ IGNORE_TEXT = [
     'click on this',
     'you understand and agree that we',
     'Recommended:',
-    'Related:'
+    'Related:',
+]
+
+SALPHA_IGNORE_HEADLINE = [
+    'on the hour',
+    'beats on',
+    ' misses on revenue'
+    'equity offering',
+    'Notable earnings',
+    ' dividend'
+    'leads after hour',
+    'Gainers: ',
+    ' beats by ',
+    ' reports Q'
+]
+
+
+SAPLHA_IGNORE_TEXT = [
+    'Scorecard, Yield Chart',
+    'click here',
+    'Press Release',
+    'ETFs:',
+    'See all stocks',
+    'now read:',
+    'Shelf registration',
+    'call starts at',
+    'debt offering',
+    'Forward yield',
+    'for shareholders of record',
+    ' principal amount of'
 ]
 
 
@@ -66,8 +98,13 @@ def string_contains(text, items):
     return False
 
 
-def ignore_this_text(text):
-    return string_contains(text, IGNORE_TEXT) or len(text) < 30
+def ignore_this_text(text, mode='normal'):
+    if mode == 'normal':
+        return string_contains(text, IGNORE_TEXT) or len(text) < 30
+    elif mode == 'salpha-headline':
+        return string_contains(text, SALPHA_IGNORE_HEADLINE)
+    elif mode == 'salpha':
+        return string_contains(text, SAPLHA_IGNORE_TEXT) or len(text) < 5
 
 
 def mw_format_date(date):
@@ -80,6 +117,30 @@ def mw_format_date(date):
     if parts[3].startswith("0"):
         parts[3] = parts[3][1:]
     return '+'.join(parts)
+
+
+def reut_format_date(date):
+    return str(int(date.timestamp() * 1e9))
+
+
+def salpha_format_date(date):
+    return str(int(date.timestamp()))
+
+
+def _init_worker():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+
+def run_multi(func, params, shuffle=False):
+    params = list(params)
+    random.shuffle(params)
+    pool = Pool(MAX_PROCS, initializer=_init_worker)
+    try:
+        pool.starmap(func, params)
+    except KeyboardInterrupt:
+        pool.terminate()
+        pool.join()
+        print('Interrupted!')
 
 
 def sql_attempt(conn, cur, sql):
