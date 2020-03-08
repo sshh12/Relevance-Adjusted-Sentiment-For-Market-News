@@ -4,14 +4,14 @@ import requests
 import signal
 import re
 
-from dataset.util import (
+from util import (
     mw_format_date, clean_html_text, ignore_this_text,
     sql_connect, sql_merge, sql_add_company, sql_add_article
 )
-from dataset.config import SYMBOLS, MAX_PROCS
+from config import SYMBOLS, MAX_PROCS
 
 
-def fetch_meta(symbol):
+def mw_fetch_meta(symbol):
     url = 'https://www.marketwatch.com/investing/stock/{}/profile'.format(symbol)
     html = requests.get(url).text
     try:
@@ -24,7 +24,7 @@ def fetch_meta(symbol):
         return (symbol.upper(), None, None, None, None)
 
 
-def fetch_iter_news(symbol, date=None):
+def mw_fetch_iter_news(symbol, date=None):
 
     if date is None:
         date = datetime.now()
@@ -39,7 +39,7 @@ def fetch_iter_news(symbol, date=None):
             found = True
             art_data = (
                 date.strftime('%Y-%m-%d'),
-                "https://www.marketwatch.com/story" + art['SeoHeadlineFragment']
+                'https://www.marketwatch.com/story' + art['SeoHeadlineFragment']
             )
             yield art_data
         date = date - timedelta(days=1)
@@ -49,7 +49,7 @@ def fetch_iter_news(symbol, date=None):
             bad_attempts += 1
 
 
-def fetch_article(url):
+def mw_fetch_article(url):
     
     article_html = requests.get(url).text
 
@@ -60,7 +60,10 @@ def fetch_article(url):
 
     text = []
 
-    start_idx = article_html.index('articleBody')
+    try:
+        start_idx = article_html.index('articleBody')
+    except ValueError:
+        return (None, "")
     try:
         end_idx = article_html.index('author-commentPromo')
     except ValueError:
@@ -75,10 +78,10 @@ def fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
-def dl_data_for_symbol(symbol, limit=10000, batch_size=50):
+def dl_mw_data_for_symbol(symbol, limit=10000, batch_size=50):
 
     (conn, cur) = sql_connect(group=symbol)
-    symb, name, industry, sector, desc = fetch_meta(symbol)
+    symb, name, industry, sector, desc = mw_fetch_meta(symbol)
 
     if name is None:
         print('No data for:', symbol)
@@ -90,13 +93,13 @@ def dl_data_for_symbol(symbol, limit=10000, batch_size=50):
 
     batch = []
     found = 0
-    for date, url in fetch_iter_news(symbol):
-        exists = (cur.execute("SELECT COUNT(url) FROM articles WHERE url = ?", (url,)).fetchone()[0] == 1)
+    for date, url in mw_fetch_iter_news(symbol):
+        exists = (cur.execute('SELECT COUNT(url) FROM articles WHERE url = ?', (url,)).fetchone()[0] == 1)
         if not exists:
-            (headline, content) = fetch_article(url)
+            (headline, content) = mw_fetch_article(url)
             if headline is None:
                 continue
-            batch.append((symbol, headline, date, content, url))
+            batch.append((symbol, headline, date, content, url, 'marketwatch'))
             print(url)
             found += 1
         if len(batch) == batch_size or found > limit:
@@ -123,16 +126,16 @@ def main():
 
     print_db_info()
 
-    pool = Pool(MAX_PROCS, initializer=_init_worker)
-    try:
-        pool.map(dl_data_for_symbol, SYMBOLS)
-    except KeyboardInterrupt:
-        pool.terminate()
-        pool.join()
-        print('Interrupted!')
+    # pool = Pool(MAX_PROCS, initializer=_init_worker)
+    # try:
+    #     pool.map(dl_mw_data_for_symbol, SYMBOLS)
+    # except KeyboardInterrupt:
+    #     pool.terminate()
+    #     pool.join()
+    #     print('Interrupted!')
 
     print('Merging...')
-    sql_merge()
+    # sql_merge()
 
     print_db_info()
 

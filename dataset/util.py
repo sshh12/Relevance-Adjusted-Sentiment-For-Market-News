@@ -3,7 +3,7 @@ import glob
 import re
 import os
 
-from dataset.config import DATABASE_URI
+from config import DATABASE_URI
 
 
 IGNORE_TEXT = [
@@ -82,47 +82,56 @@ def mw_format_date(date):
     return '+'.join(parts)
 
 
-def sql_connect(group='', try_init=True):
+def sql_attempt(conn, cur, sql):
+    try:
+        cur.execute(sql)
+        conn.commit()
+        return True
+    except sqlite3.OperationalError:
+        pass
+    return False
+
+
+def sql_connect(group=''):
     actual_uri = DATABASE_URI
     if group:
         b, a = DATABASE_URI.split('.')
         actual_uri = b + '-' + group + '.' + a
     conn = sqlite3.connect(os.path.join('data', actual_uri))
-    conn.execute("PRAGMA busy_timeout = 120000")
+    conn.execute('PRAGMA busy_timeout = 120000')
     cur = conn.cursor()
-    try:
-        cur.execute("""
-        CREATE TABLE articles (
-            article_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol VARCHAR(10),
-            headline VARCHAR(255),
-            date VARCHAR(10),
-            content TEXT,
-            url VARCHAR(255),
-            UNIQUE(symbol, url)
-        )""")
-        cur.execute("""
-        CREATE TABLE companies (
-            company_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            symbol VARCHAR(10) UNIQUE,
-            name VARCHAR(255),
-            industry VARCHAR(255),
-            sector VARCHAR(255),
-            desc TEXT
-        )""")
+    sql_attempt(conn, cur, """
+    CREATE TABLE articles (
+        article_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol VARCHAR(10),
+        headline VARCHAR(255),
+        date VARCHAR(10),
+        content TEXT,
+        url VARCHAR(255),
+        UNIQUE(symbol, url)
+    )""")
+    sql_attempt(conn, cur, """
+    CREATE TABLE companies (
+        company_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol VARCHAR(10) UNIQUE,
+        name VARCHAR(255),
+        industry VARCHAR(255),
+        sector VARCHAR(255),
+        desc TEXT
+    )""")
+    if sql_attempt(conn, cur, "ALTER TABLE articles ADD source VARCHAR(20)"):
+        cur.execute("UPDATE articles SET source=?", ('marketwatch',))
         conn.commit()
-    except sqlite3.OperationalError:
-        pass
     return (conn, cur)
 
 
 def sql_add_article(cur, params):
-    assert len(params) == 5, 'Bad Article'
+    assert len(params) == 6, 'Bad Article'
     cur.execute("""
     INSERT OR IGNORE INTO articles
-        (symbol, headline, date, content, url)
+        (symbol, headline, date, content, url, source)
         VALUES
-        (?,?,?,?,?)
+        (?,?,?,?,?,?)
     """, params)
 
 
