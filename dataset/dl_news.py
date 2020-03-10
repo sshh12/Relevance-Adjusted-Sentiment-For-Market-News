@@ -60,7 +60,7 @@ def reut_fetch_iter_news(symbol, date=None):
         form_date = mw_format_date(date)
         url = 'https://wireapi.reuters.com/v8/feed/rcom/us/marketnews/ric:{}.OQ?until={}'.format(symbol, form_date)
         resp = requests.get(url).json()
-        arts = resp['wireitems']
+        arts = resp.get('wireitems', [])
         for art in arts:
             date_id = art['wireitem_id']
             action = None
@@ -76,9 +76,9 @@ def reut_fetch_iter_news(symbol, date=None):
                 action['url']
             )
             yield art_data
-        date = date - timedelta(days=2)
         if len(arts) > 0:
             bad_attempts = 0
+            date = date - timedelta(days=2)
         else:
             bad_attempts += 1
 
