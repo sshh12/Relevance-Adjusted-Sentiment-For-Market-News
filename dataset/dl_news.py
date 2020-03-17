@@ -245,7 +245,7 @@ def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
             if headline is None:
                 continue
             batch.append((symbol, headline, date, content, url, source))
-            print(url)
+            print(symbol, url)
             found += 1
         if len(batch) == batch_size or found > limit:
             for item in batch:
