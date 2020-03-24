@@ -3,12 +3,12 @@ import requests
 import time
 import re
 
-from util import (
+from dataset.util import (
     mw_format_date, reut_format_date, clean_html_text, ignore_this_text,
     sql_connect, sql_merge, sql_add_company, sql_add_article, run_multi,
     salpha_format_date
 )
-from config import SYMBOLS, MAX_PROCS
+from dataset.config import SYMBOLS, MAX_PROCS
 
 
 def fetch_meta(symbol):

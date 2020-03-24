@@ -6,7 +6,7 @@ import glob
 import re
 import os
 
-from config import DATABASE_URI, MAX_PROCS
+from .config import DATABASE_URI, MAX_PROCS
 
 
 IGNORE_TEXT = [
