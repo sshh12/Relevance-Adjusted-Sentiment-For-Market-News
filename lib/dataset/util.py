@@ -34,6 +34,9 @@ IGNORE_TEXT = [
     'you understand and agree that we',
     'Recommended:',
     'Related:',
+    'Below is a snapshot of',
+    ', go here.',
+    'Full details at http'
 ]
 
 SALPHA_IGNORE_HEADLINE = [

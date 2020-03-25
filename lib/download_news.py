@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
+from newspaper import Article
 import requests
+import pendulum
 import time
 import re
 
@@ -125,6 +127,36 @@ def salpha_fetch_iter_news(symbol, date=None):
         date = date - timedelta(days=3)
 
 
+def bensinga_fetch_iter_news(symbol, date=None):
+
+    if date is None:
+        date = datetime.now()
+
+    stock_page = requests.get('https://www.benzinga.com/stock/{}/'.format(symbol.lower()))
+    tid_match = re.search(r'"tids":"(\d+)"', stock_page.text)
+    if not tid_match:
+        return
+    tid = tid_match.group(1)
+
+    bad_attempts = 0
+
+    while bad_attempts < 365:
+
+        form_date = int(date.timestamp() / 100)
+        url = 'https://www.benzinga.com/services/webapps/content?lastnid={}&parameters[tids]={}&parameters[type]=story,scoutfin_realtimebriefs,press_releases'.format(form_date, tid)
+        resp = requests.get(url).json()
+
+        for article in resp:
+            date = pendulum.from_format(article['created'], 'ddd, D MMM YYYY HH:mm:ss ZZ')
+            url = article['url']
+            yield date.strftime('%Y-%m-%d'), url
+        if len(resp) > 0:
+            bad_attempts = 0
+        else:
+            bad_attempts += 1
+        date = date - timedelta(days=3)
+
+
 def mw_fetch_article(url):
     
     article_html = requests.get(url).text
@@ -216,12 +248,29 @@ def sa_fetch_article(url):
     return (headline, "\n\n\n".join(text))
 
 
+def benzinga_fetch_article(url):
+
+    try:
+        art = Article(url)
+        art.download()
+        art.parse()
+        headline = clean_html_text(art.title)
+        text = clean_html_text(art.text)
+        text = '\n'.join([t for t in text.split('\n') if not ignore_this_text(t)])
+        assert len(text) > 30
+    except:
+        return (None, "")
+
+    return (headline, text)
+
+
 def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
 
     (iter_news, fetch_article) = {
         'marketwatch': (mw_fetch_iter_news, mw_fetch_article),
         'reuters': (reut_fetch_iter_news, reut_fetch_article),
-        'seekingalpha': (salpha_fetch_iter_news, sa_fetch_article)
+        'seekingalpha': (salpha_fetch_iter_news, sa_fetch_article),
+        'benzinga': (bensinga_fetch_iter_news, benzinga_fetch_article)
     }[source]
 
     (conn, cur) = sql_connect(group=symbol)
@@ -236,15 +285,18 @@ def dl_data_for_symbol(symbol, source, limit=5000, batch_size=50):
     sql_add_company(cur, (symb, name, industry, sector, desc))
 
     batch = []
+    recents = set()
     found = 0
     for date, url in iter_news(symbol):
+        recent_key = symbol + '_' + url
         exists = (cur.execute('SELECT COUNT(url) FROM articles WHERE url = ? AND symbol = ?', 
             (url, symbol)).fetchone()[0] == 1)
-        if not exists:
+        if not exists and recent_key not in recents:
             (headline, content) = fetch_article(url)
             if headline is None:
                 continue
             batch.append((symbol, headline, date, content, url, source))
+            recents.add(recent_key)
             print(symbol, url)
             found += 1
         if len(batch) == batch_size or found > limit:
@@ -271,7 +323,7 @@ def main():
     n = len(SYMBOLS)
     runs = zip(
         SYMBOLS + SYMBOLS + SYMBOLS,
-        ['reuters'] * n + ['marketwatch'] * n + ['seekingalpha'] * n
+        ['reuters'] * n + ['marketwatch'] * n + ['seekingalpha'] * n + ['benzinga'] * n
     )
     run_multi(dl_data_for_symbol, runs, shuffle=True)
 
