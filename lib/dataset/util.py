@@ -226,3 +226,21 @@ def sql_merge(groups=None, delete=False):
         if delete:
             os.remove(group + '-' + DATABASE_URI)
     conn.commit()
+
+
+def sql_read_articles(only_labeled=False):
+    (conn, cur) = sql_connect()
+    cmd = 'SELECT article_id, symbol, headline, date, content, url FROM articles'
+    if only_labeled:
+        cmd += ' WHERE symbol != \'????\''
+    cmd += ' ORDER BY article_id ASC'
+    articles = cur.execute(cmd).fetchall()
+    conn.close()
+    return articles
+
+
+def sql_read_companies_dict():
+    (conn, cur) = sql_connect()
+    companies = cur.execute('SELECT company_id, symbol, name, industry, sector, desc FROM companies ORDER BY company_id ASC').fetchall()
+    conn.close()
+    return {c[1]: c for c in companies}
