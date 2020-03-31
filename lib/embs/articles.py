@@ -10,6 +10,11 @@ import nltk
 import os
 
 
+def load_embs_from_exp_id(exp_id):
+    fn = os.path.join('data', exp_id + '.npy')
+    return np.load(fn)
+
+
 class AbstractEmb:
 
     TAG = 'abs'
@@ -32,9 +37,9 @@ class AbstractEmb:
     def plot(self, label_name, labels):
         assert len(labels) == len(self.docs)
         reducer = umap.UMAP()
-        self.docs_rembs = reducer.fit_transform(self.doc_embs)
+        docs_rembs = reducer.fit_transform(self.doc_embs)
         df = pd.DataFrame({
-            'x': self.docs_rembs[:, 0], 'y': self.docs_rembs[:, 1],
+            'x': docs_rembs[:, 0], 'y': docs_rembs[:, 1],
             label_name: labels,
             'doc': [d[:50] for d in self.docs]
         })

@@ -10,6 +10,8 @@ def iter_dump(fn='news.data'):
     with open(os.path.join('data', fn), encoding='utf-8') as fp:
         for line in fp:
             article = json.loads(line)['_source']
+            if article['source'] == 'twitter':
+                continue
             date = pendulum.parse(article['date']).in_tz('America/Chicago')
             art_tup = (
                 None,
