@@ -71,6 +71,18 @@ class PretrainedBERT(AbstractEmb):
         self.doc_embs = self.bc.encode(self.docs)
 
 
+class FinetunedBERT(AbstractEmb):
+
+    TAG = 'finetunedbert'
+
+    def prep(self):
+        print('$ bert-serving-start -model_dir data/uncased_L-24_H-1024_A-16_ft -num_worker=1 -max_seq_len=512 -max_batch_size 64')
+        self.bc = BertClient(check_length=False)
+
+    def bake_embs(self):
+        self.doc_embs = self.bc.encode(self.docs)
+
+
 class Doc2Vec(AbstractEmb):
 
     TAG = 'doc2vec'
@@ -102,6 +114,7 @@ class CountVec(AbstractEmb):
 
 EMBEDDINGS = [
     PretrainedBERT,
+    FinetunedBERT,
     Doc2Vec,
     CountVec
 ]
