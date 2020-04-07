@@ -5,7 +5,7 @@ import pickle
 
 def main():
 
-    articles = sql_read_articles(only_labeled=True)[:40]
+    articles = sql_read_articles(only_labeled=True)
     ids = [a[0] for a in articles]
     headlines = [a[2] for a in articles]
     content = [a[2] + '\n\n' + a[4] for a in articles]
