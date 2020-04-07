@@ -27,7 +27,7 @@ class AbstractEmb:
         self.figs = {}
 
     def prep(self):
-        raise NotImplementedError()
+        pass
 
     def bake_embs(self):
         raise NotImplementedError()
@@ -49,7 +49,7 @@ class AbstractEmb:
         np.save(fn_embs, self.comp_embs)
         if len(self.figs) > 0:
             for name, fig in self.figs.items():
-                fn_fig = os.path.join(folder, '{}-{}.png'.format(self.exp_id, name))
+                fn_fig = os.path.join(folder, '{}-{}.png'.format(self.exp_id, name.lower()))
                 fig.write_image(fn_fig)
         # model already saved
 
