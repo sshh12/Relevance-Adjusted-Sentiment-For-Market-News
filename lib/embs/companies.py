@@ -1,6 +1,6 @@
 from keras.layers import Input, Embedding, Dense, Dot, Reshape
+from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.models import Model, load_model
-from keras.callbacks import ModelCheckpoint
 import plotly.express as px
 import pandas as pd
 import numpy as np
@@ -121,8 +121,10 @@ class KerasDeep(AbstractEmb):
 
     def _train(self):
         checkpoint = ModelCheckpoint(self.model_save_path, monitor='val_accuracy', verbose=1, save_best_only=True)
+        early_stop = EarlyStopping(monitor='val_accuracy', patience=4)
         S, A, Y = self.dataset
-        hist = self.model.fit(x=[S, A], y=Y, epochs=100, batch_size=16, validation_split=0.3, callbacks=[checkpoint])
+        hist = self.model.fit(x=[S, A], y=Y, epochs=100, batch_size=16, validation_split=0.3, 
+            callbacks=[checkpoint, early_stop])
 
     def prep(self):
         self.model = self._build_model()

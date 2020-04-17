@@ -76,7 +76,7 @@ class FinetunedBERT(AbstractEmb):
     TAG = 'finetunedbert'
 
     def prep(self):
-        print('$ bert-serving-start -model_dir data/uncased_L-24_H-1024_A-16_ft -num_worker=1 -max_seq_len=512 -max_batch_size 64')
+        print('$ bert-serving-start -model_dir data/uncased_L-12_H-768_A-12 -tuned_model_dir data/uncased_L-12_H-768_A-12_ft_symbol_pairs -ckpt_name=model.ckpt-100775 -num_worker=1 -max_seq_len=256 -max_batch_size 64')
         self.bc = BertClient(check_length=False)
 
     def bake_embs(self):

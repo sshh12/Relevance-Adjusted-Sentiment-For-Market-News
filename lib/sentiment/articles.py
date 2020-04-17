@@ -1,4 +1,5 @@
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from allennlp.predictors.predictor import Predictor
 from textblob import TextBlob
 import plotly.express as px
 import pandas as pd
@@ -70,7 +71,22 @@ class VADERSentiment(AbstractSentiment):
         self.doc_sent = np.array([self._score(doc) for doc in self.docs])
 
 
+class AllenNLPGlove(AbstractSentiment):
+
+    TAG = 'allenglove'
+
+    def prep(self):
+        self.model = Predictor.from_path("https://s3-us-west-2.amazonaws.com/allennlp/models/sst-2-basic-classifier-glove-2019.06.27.tar.gz")
+
+    def _score(self, doc):
+        return self.model.predict(sentence=doc)['probs'][0] - 0.5
+
+    def bake_sentiment(self):
+        self.doc_sent = np.array([self._score(doc) for doc in self.docs])
+
+
 SENTIMENT_ALGOS = [
     TextBlobSentiment,
-    VADERSentiment
+    VADERSentiment,
+    AllenNLPGlove
 ]

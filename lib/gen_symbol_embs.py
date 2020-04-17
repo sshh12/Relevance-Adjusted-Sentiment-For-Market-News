@@ -5,10 +5,13 @@ from embs.articles import load_embs_from_exp_id
 from embs.companies import KerasDeep
 import random
 import pickle
+import glob
+import os
 
 
 EXP_IDS = [
-    'article-embs-40-doc2vec-content'
+    os.path.splitext(os.path.basename(fn))[0] 
+    for fn in glob.iglob(os.path.join('data', 'article-embs-*-*-*.npy'))
 ]
 
 
