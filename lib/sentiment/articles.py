@@ -1,10 +1,13 @@
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from allennlp.predictors.predictor import Predictor
+from google.cloud import language_v1 as language
+from google.cloud.language_v1 import enums
 from textblob import TextBlob
 import plotly.express as px
 import pandas as pd
 import numpy as np
 import pickle
+import time
 import os
 
 
@@ -85,8 +88,33 @@ class AllenNLPGlove(AbstractSentiment):
         self.doc_sent = np.array([self._score(doc) for doc in self.docs])
 
 
+class GoogleCloud(AbstractSentiment):
+
+    TAG = 'gcp'
+
+    def prep(self):
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.path.join('data', 'gcp.json')
+        self.gcp_client = language.LanguageServiceClient()
+
+    def _score(self, doc):
+        document = {'content': doc, 'type': enums.Document.Type.PLAIN_TEXT, 'language': 'en'}
+        try:
+            doc_resp = self.gcp_client.analyze_sentiment(document, encoding_type=enums.EncodingType.UTF8)
+            polarity = doc_resp.document_sentiment.score
+            mag = doc_resp.document_sentiment.magnitude
+            time.sleep(0.2)  # just to be safe
+            return polarity
+        except Exception as e:
+            print(e)
+            return -1000
+
+    def bake_sentiment(self):
+        self.doc_sent = np.array([self._score(doc) for doc in self.docs])
+
+
 SENTIMENT_ALGOS = [
     TextBlobSentiment,
     VADERSentiment,
-    AllenNLPGlove
+    AllenNLPGlove,
+    GoogleCloud
 ]

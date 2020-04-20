@@ -3,6 +3,7 @@
 from dataset.util import sql_read_articles, sql_read_companies_dict
 from embs.articles import load_embs_from_exp_id
 from embs.companies import KerasDeep
+import numpy as np
 import random
 import pickle
 import glob
@@ -13,6 +14,36 @@ EXP_IDS = [
     os.path.splitext(os.path.basename(fn))[0] 
     for fn in glob.iglob(os.path.join('data', 'article-embs-*-*-*.npy'))
 ]
+
+
+def _make_dataset(art_embs, sym_to_idx, sym_to_art_idxs):
+    S = []
+    A = []
+    Y = []
+    all_ids = list(range(len(art_embs)))
+    for sym, sym_idx in sym_to_idx.items():
+        sym_arts = sym_to_art_idxs[sym]
+        for art_id in sym_arts:
+            S.append(sym_idx)
+            A.append(art_embs[art_id])
+            Y.append(1)
+        nsym_arts = []
+        for _ in sym_arts:
+            nart_id = sym_arts[0]
+            while nart_id in sym_arts or nart_id in nsym_arts:
+                nart_id = random.choice(all_ids)
+            nsym_arts.append(nart_id)
+            S.append(sym_idx)
+            A.append(art_embs[nart_id])
+            Y.append(0)
+    S = np.array(S)
+    A = np.array(A)
+    Y = np.array(Y)
+    rand_ord = np.random.permutation(S.shape[0])
+    S = S[rand_ord]
+    A = A[rand_ord]
+    Y = Y[rand_ord]
+    return S, A, Y
 
 
 def main():
@@ -40,14 +71,24 @@ def main():
 
     for art_exp_id in EXP_IDS:
         art_embs = load_embs_from_exp_id(art_exp_id)
-        tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+        art_emb_tests = []
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
             latent_size=1024, post_emb_layers=1))
-        tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
             latent_size=1024, post_emb_layers=2))
-        tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
             latent_size=512, post_emb_layers=1))
-        tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
             latent_size=512, post_emb_layers=2))
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+            latent_size=64, post_emb_layers=1))
+        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
+            latent_size=64, post_emb_layers=2))
+
+        dataset = _make_dataset(art_embs, sym_to_idx, sym_to_art_idxs)
+        for test in art_emb_tests:
+            test.dataset = dataset
+        tests.extend(art_emb_tests)
 
     for test in tests:
         test.prep()

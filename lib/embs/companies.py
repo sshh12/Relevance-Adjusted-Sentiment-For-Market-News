@@ -87,38 +87,6 @@ class KerasDeep(AbstractEmb):
         model.compile(optimizer='Adam', loss='binary_crossentropy', metrics=['accuracy'])
         return model
 
-    def _make_dataset(self):
-
-        S = []
-        A = []
-        Y = []
-
-        all_ids = list(range(len(self.art_embs)))
-        for sym, sym_idx in self.sym_to_idx.items():
-            sym_arts = self.sym_to_art_idxs[sym]
-            for art_id in sym_arts:
-                S.append(sym_idx)
-                A.append(self.art_embs[art_id])
-                Y.append(1)
-            nsym_arts = []
-            for _ in sym_arts:
-                nart_id = sym_arts[0]
-                while nart_id in sym_arts or nart_id in nsym_arts:
-                    nart_id = random.choice(all_ids)
-                nsym_arts.append(nart_id)
-                S.append(sym_idx)
-                A.append(self.art_embs[nart_id])
-                Y.append(0)
-
-        S = np.array(S)
-        A = np.array(A)
-        Y = np.array(Y)
-        rand_ord = np.random.permutation(S.shape[0])
-        S = S[rand_ord]
-        A = A[rand_ord]
-        Y = Y[rand_ord]
-        return S, A, Y
-
     def _train(self):
         checkpoint = ModelCheckpoint(self.model_save_path, monitor='val_accuracy', verbose=1, save_best_only=True)
         early_stop = EarlyStopping(monitor='val_accuracy', patience=4)
@@ -128,14 +96,12 @@ class KerasDeep(AbstractEmb):
 
     def prep(self):
         self.model = self._build_model()
-        self.dataset = self._make_dataset()
         self.model_save_path = os.path.join('data', self.exp_id + '-{epoch:02d}-{val_accuracy:.2f}.h5')
         self.models_glob = os.path.join('data', self.exp_id + '-*.h5')
 
     def bake_embs(self):
 
         self._train()
-        del self.dataset
         del self.model
 
         models = glob.glob(self.models_glob)
