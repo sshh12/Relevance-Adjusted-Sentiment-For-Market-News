@@ -91,12 +91,12 @@ class KerasDeep(AbstractEmb):
         checkpoint = ModelCheckpoint(self.model_save_path, monitor='val_accuracy', verbose=1, save_best_only=True)
         early_stop = EarlyStopping(monitor='val_accuracy', patience=4)
         S, A, Y = self.dataset
-        hist = self.model.fit(x=[S, A], y=Y, epochs=100, batch_size=16, validation_split=0.3, 
+        hist = self.model.fit(x=[S, A], y=Y, epochs=20, batch_size=16, validation_split=0.3, 
             callbacks=[checkpoint, early_stop])
 
     def prep(self):
         self.model = self._build_model()
-        self.model_save_path = os.path.join('data', self.exp_id + '-{epoch:02d}-{val_accuracy:.2f}.h5')
+        self.model_save_path = os.path.join('data', self.exp_id + '-{epoch:02d}-{val_accuracy:.4f}.h5')
         self.models_glob = os.path.join('data', self.exp_id + '-*.h5')
 
     def bake_embs(self):

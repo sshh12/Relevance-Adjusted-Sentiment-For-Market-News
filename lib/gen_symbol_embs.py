@@ -70,20 +70,16 @@ def main():
     tests = []
 
     for art_exp_id in EXP_IDS:
+        
         art_embs = load_embs_from_exp_id(art_exp_id)
+
         art_emb_tests = []
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=1024, post_emb_layers=1))
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=1024, post_emb_layers=2))
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=512, post_emb_layers=1))
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=512, post_emb_layers=2))
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=64, post_emb_layers=1))
-        art_emb_tests.append(KerasDeep(art_exp_id, art_embs, sym_to_idx, sym_to_art_idxs, 
-            latent_size=64, post_emb_layers=2))
+        for ls in [2024, 1024, 512, 65]:
+            for layers in [0, 1, 3]:
+                art_emb_tests.append(KerasDeep(art_exp_id, art_embs, 
+                    sym_to_idx, sym_to_art_idxs, 
+                    latent_size=ls, post_emb_layers=layers
+                ))
 
         dataset = _make_dataset(art_embs, sym_to_idx, sym_to_art_idxs)
         for test in art_emb_tests:
@@ -91,6 +87,7 @@ def main():
         tests.extend(art_emb_tests)
 
     for test in tests:
+        print(test.exp_id)
         test.prep()
         test.bake_embs()
         test.plot('Sector', sectors, names)
