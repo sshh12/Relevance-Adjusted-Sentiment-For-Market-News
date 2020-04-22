@@ -112,6 +112,27 @@ class GoogleCloud(AbstractSentiment):
         self.doc_sent = np.array([self._score(doc) for doc in self.docs])
 
 
+def load_sentiment(fn, standardize=True):
+    data = np.load(fn)
+    if standardize:
+        if '-gcp-' in fn:
+            clean_idxs = (data != -1000)
+            data = (data - data[clean_idxs].mean()) / data[clean_idxs].std()
+            data[~clean_idxs] = -1000
+        elif '-vader-content' in fn:
+            temp = np.abs(data / 2)
+            temp[temp == 0] = 0.001
+            data = -np.sign(data) * (np.log(temp) + np.log(2))
+            data = (data - data.mean()) / data.std()
+        elif '-allenglove-' in fn:
+            data = -np.sign(data) * (np.log(np.abs(data)) + np.log(2))
+            data = (data - data.mean()) / data.std()
+        else:
+            data = (data - data.mean()) / data.std()
+        data = np.clip(data, -3, 3)
+    return data
+
+
 SENTIMENT_ALGOS = [
     TextBlobSentiment,
     VADERSentiment,

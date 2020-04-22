@@ -1,4 +1,5 @@
 from dataset.util import sql_read_articles
+from sentiment.articles import load_sentiment
 from keras.models import load_model
 from collections import defaultdict
 import plotly.express as px
@@ -24,22 +25,29 @@ class RSentimentScore:
         self.art_embs_fn = os.path.join('data', '-'.join(
             os.path.basename(relv_model_fn).split('-')[3:-5]) + '.npy')
         self.art_embs = np.load(self.art_embs_fn)
-        self.sent = np.load(self.sent_fn)
-        self.sent = self.sent - self.sent.mean()
+        self.sent = load_sentiment(self.sent_fn)
+        self.sent = self.sent
         self.model = load_model(self.relv_model_fn)
 
     def score(self, symbol, art_idxs):
-        article_embs = self.art_embs[art_idxs]
-        symbol_idxs = [self.sym_to_idx[symbol]] * len(art_idxs)
+
         sentiment = self.sent[art_idxs]
+        article_embs = self.art_embs[art_idxs]
+
+        valid_sent_idxs = (sentiment != -1000)  # b/c gcp sent somewhat broken
+        sentiment = sentiment[valid_sent_idxs]
+        article_embs = article_embs[valid_sent_idxs]
+
+        symbol_idxs = [self.sym_to_idx[symbol]] * len(article_embs)
+
         relv = self.model.predict([symbol_idxs, article_embs])
-        # relv = relv / relv.max()
         relv_sentiment = sentiment * relv
-        return np.mean(relv_sentiment) / 8
+        return np.mean(relv_sentiment)
 
     def get_id(self):
         return os.path.splitext(os.path.basename(self.relv_model_fn))[0] \
             + '-' + os.path.splitext(os.path.basename(self.sent_fn))[0]
+
 
 def _dl_prices(symb, key='KOZNM03XM806URDU'):
     fn = os.path.join('data', 'PRICE_' + symb + '.csv')
@@ -52,9 +60,11 @@ def _dl_prices(symb, key='KOZNM03XM806URDU'):
     df['log_close'] = df['close'].apply(np.log)
     df['log_open'] = df['open'].apply(np.log)
     df['log_open_to_close'] = df['log_close'] - df['log_open']
+    df['log_close_close'] = df['log_close'] - df['log_close'].shift(-1)
     return df
 
-def main():
+
+def main(symbol, price_column, plot=True):
 
     articles = sql_read_articles(only_labeled=True)
     article_idxs_by_date = defaultdict(list)
@@ -66,11 +76,6 @@ def main():
     with open(COMP_MAP_FN, 'rb') as f:
         sym_to_idx = pickle.load(f)
 
-    # import time
-    # for sym in sym_to_idx:
-    #     _dl_prices(sym)
-    #     time.sleep(6)
-
     plot_data = defaultdict(list)
     plot_data['date'] = dates
     names = []
@@ -80,22 +85,23 @@ def main():
             name = RS.get_id()
             names.append(name)
             for date in tqdm.tqdm(dates):
-                score = RS.score('AAPL', article_idxs_by_date[date])
+                score = RS.score(symbol, article_idxs_by_date[date])
                 plot_data[name].append(score)
-            break
-        break
 
-    prices = _dl_prices('AAPL')
+    prices = _dl_prices(symbol)
     df = pd.DataFrame(plot_data)
-    # for name in names:
-    #     df[name] = df[name].cumsum()
+    for name in names:
+        df[name + '_emw'] = df[name].ewm(span=5).mean()
+        df[name + '_emw20'] = df[name].ewm(span=20).mean()
+        df[name + '_sum'] = df[name].cumsum()
     df = df.merge(prices[['date', 'log_open_to_close']], on='date')
-    # df['log_close'] = df['log_close'] - df['log_close'][0]
+    print(df.corr()['log_open_to_close'])
 
-    df_plot = df.melt(id_vars=['date'], var_name='method', value_name='score')
-    fig = px.line(df_plot, x='date', y='score', color='method')
-    fig.show()
+    if plot:
+        df_plot = df.melt(id_vars=['date'], var_name='method', value_name='score')
+        fig = px.line(df_plot, x='date', y='score', color='method')
+        fig.show()
 
 
 if __name__ == "__main__":
-    main()
+    main('NFLX', 'log_open_to_close', plot=False)
