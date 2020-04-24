@@ -1,4 +1,6 @@
 from multiprocessing import Pool
+import pandas as pd
+import numpy as np
 import random
 import sqlite3
 import signal
@@ -128,6 +130,31 @@ def reut_format_date(date):
 
 def salpha_format_date(date):
     return str(int(date.timestamp()))
+
+
+def mkdir(path):
+    try:
+        os.makedirs(path)
+    except:
+        pass
+
+
+def download_prices(symb, key='KOZNM03XM806URDU', refresh=False):
+    fn = os.path.join('data', 'PRICE_' + symb + '.csv')
+    if not os.path.exists(fn) or refresh:
+        df = pd.read_csv('https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&outputsize=full&symbol={}&apikey={}&datatype=csv'.format(symb, key))
+        df = df.rename(columns={'timestamp': 'date'})
+        df.sort_values('date', ascending=True, inplace=True)
+        df.to_csv(fn, index=False)
+    df = pd.read_csv(fn)
+    df['lg_close'] = df['close'].apply(np.log)
+    df['lg_open'] = df['open'].apply(np.log)
+    df['lg_yopen_to_yclose'] = df['lg_close'].shift(1) - df['lg_open'].shift(1)
+    df['lg_topen_to_tclose'] = df['lg_close'] - df['lg_open']
+    df['lg_tmopen_to_tmclose'] = df['lg_close'].shift(-1) - df['lg_open'].shift(-1)
+    df['lg_yclose_tclose'] = df['lg_close'] - df['lg_close'].shift(1)
+    df['lg_tclose_tmclose'] = df['lg_close'].shift(-1) - df['lg_close']
+    return df
 
 
 def _init_worker():

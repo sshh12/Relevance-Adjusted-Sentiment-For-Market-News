@@ -1,4 +1,4 @@
-from dataset.util import sql_read_articles
+from dataset.util import sql_read_articles, mkdir, download_prices
 from sentiment.articles import load_sentiment
 from keras.models import load_model
 from collections import defaultdict
@@ -24,17 +24,19 @@ class RSentimentScore:
         self.sent_fn = sent_fn
         self.art_embs_fn = os.path.join('data', '-'.join(
             os.path.basename(relv_model_fn).split('-')[3:-5]) + '.npy')
+
+    def load(self):
+        self.model = load_model(self.relv_model_fn)
         self.art_embs = np.load(self.art_embs_fn)
         self.sent = load_sentiment(self.sent_fn)
-        self.sent = self.sent
-        self.model = load_model(self.relv_model_fn)
 
     def score(self, symbol, art_idxs):
 
         sentiment = self.sent[art_idxs]
         article_embs = self.art_embs[art_idxs]
 
-        valid_sent_idxs = (sentiment != -1000)  # b/c gcp sent somewhat broken
+        # b/c gcp sent scores somewhat broken
+        valid_sent_idxs = (sentiment != -1000)  
         sentiment = sentiment[valid_sent_idxs]
         article_embs = article_embs[valid_sent_idxs]
 
@@ -49,22 +51,9 @@ class RSentimentScore:
             + '-' + os.path.splitext(os.path.basename(self.sent_fn))[0]
 
 
-def _dl_prices(symb, key='KOZNM03XM806URDU'):
-    fn = os.path.join('data', 'PRICE_' + symb + '.csv')
-    if not os.path.exists(fn):
-        df = pd.read_csv('https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&outputsize=full&symbol={}&apikey={}&datatype=csv'.format(symb, key))
-        df = df.rename(columns={'timestamp': 'date'})
-        df.sort_values('date', ascending=True, inplace=True)
-        df.to_csv(fn, index=False)
-    df = pd.read_csv(fn)
-    df['log_close'] = df['close'].apply(np.log)
-    df['log_open'] = df['open'].apply(np.log)
-    df['log_open_to_close'] = df['log_close'] - df['log_open']
-    df['log_close_close'] = df['log_close'] - df['log_close'].shift(-1)
-    return df
+def main(symbol, plot=True):
 
-
-def main(symbol, price_column, plot=True):
+    mkdir(os.path.join('data', 'plot_ckpt'))
 
     articles = sql_read_articles(only_labeled=True)
     article_idxs_by_date = defaultdict(list)
@@ -84,24 +73,41 @@ def main(symbol, price_column, plot=True):
             RS = RSentimentScore(sym_to_idx, relv_model_fn, sentiment_fn)
             name = RS.get_id()
             names.append(name)
-            for date in tqdm.tqdm(dates):
-                score = RS.score(symbol, article_idxs_by_date[date])
-                plot_data[name].append(score)
+            ckpt_fn = os.path.join('data', 'plot_ckpt', name + '.npy')
+            if not os.path.exists(ckpt_fn):
+                print('Computing', name)
+                RS.load()
+                scores = []
+                for date in tqdm.tqdm(dates):
+                    score = RS.score(symbol, article_idxs_by_date[date])
+                    scores.append(score)
+                np.save(ckpt_fn, scores)
+            else:
+                print('Already computed...skipping.')
+                scores = list(np.load(ckpt_fn))
+            plot_data[name] = scores
 
-    prices = _dl_prices(symbol)
+    prices = download_prices(symbol)
     df = pd.DataFrame(plot_data)
     for name in names:
-        df[name + '_emw'] = df[name].ewm(span=5).mean()
-        df[name + '_emw20'] = df[name].ewm(span=20).mean()
-        df[name + '_sum'] = df[name].cumsum()
-    df = df.merge(prices[['date', 'log_open_to_close']], on='date')
-    print(df.corr()['log_open_to_close'])
+        for win in [5, 7, 10, 30]:
+            df[name + '_emw' + str(win)] = df[name].ewm(span=win).mean()
+            df[name + '_ma' + str(win)] = df[name].rolling(win).mean()
+        df[name + '_cumsum'] = df[name].cumsum()
+
+    df_corr = df.merge(prices, on='date')
+    df_corr.to_csv('prices-by-date.csv')
+
+    price_cols = [c for c in prices.columns if c != 'date']
+    corr_table = df_corr.corr()
+    corr_table[price_cols].to_csv('price-corr.csv')
 
     if plot:
+        df_plot = df.merge(prices[['date', 'lg_topen_to_tclose']], on='date')
         df_plot = df.melt(id_vars=['date'], var_name='method', value_name='score')
         fig = px.line(df_plot, x='date', y='score', color='method')
         fig.show()
 
 
 if __name__ == "__main__":
-    main('NFLX', 'log_open_to_close', plot=False)
+    main('NFLX', plot=False)
