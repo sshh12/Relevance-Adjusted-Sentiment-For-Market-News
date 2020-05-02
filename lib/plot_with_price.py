@@ -73,7 +73,7 @@ def main(symbol, plot=True):
             RS = RSentimentScore(sym_to_idx, relv_model_fn, sentiment_fn)
             name = RS.get_id()
             names.append(name)
-            ckpt_fn = os.path.join('data', 'plot_ckpt', name + '.npy')
+            ckpt_fn = os.path.join('data', 'plot_ckpt', symbol + '-' + name + '.npy')
             if not os.path.exists(ckpt_fn):
                 print('Computing', name)
                 RS.load()
@@ -96,11 +96,11 @@ def main(symbol, plot=True):
         df[name + '_cumsum'] = df[name].cumsum()
 
     df_corr = df.merge(prices, on='date')
-    df_corr.to_csv('prices-by-date.csv')
+    df_corr.to_csv(os.path.join('data', 'prices-by-date-' + symbol + '.csv'))
 
     price_cols = [c for c in prices.columns if c != 'date']
     corr_table = df_corr.corr()
-    corr_table[price_cols].to_csv('price-corr.csv')
+    corr_table[price_cols].to_csv(os.path.join('data', 'price-corr-' + symbol + '.csv'))
 
     if plot:
         df_plot = df.merge(prices[['date', 'lg_topen_to_tclose']], on='date')
@@ -110,4 +110,4 @@ def main(symbol, plot=True):
 
 
 if __name__ == "__main__":
-    main('NFLX', plot=False)
+    main('GE', plot=False)
