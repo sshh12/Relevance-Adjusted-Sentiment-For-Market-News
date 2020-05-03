@@ -83,6 +83,8 @@ def _simulate_return(sym, strat, start, end, show=False, **kwargs):
 
 def main(SYMBOL, START, END):
 
+    print('Simulating', SYMBOL, START, END)
+
     rs_df, methods, RSSignal, RSStrat = _parse_rsentiment_data_and_make_strat(SYMBOL)
     
     data = {}
@@ -101,6 +103,8 @@ def main(SYMBOL, START, END):
     results = defaultdict(list)
     best_result = list(data.keys())[0]
 
+    print('Aggregating...')
+
     for (name, thresh, multi), ret in data.items():
         temp, mod = (name.split('_') + [""])[:2]
         ids = temp.split('-')
@@ -118,7 +122,7 @@ def main(SYMBOL, START, END):
         results['4-c_num_emb-' + str(c_num_emb)].append(ret)
         if ret > data[best_result]:
             best_result = (name, thresh, multi)
-        table['5-long'] = _simulate_return(SYMBOL, LongStrat, START, END)
+        results['5-long'] = _simulate_return(SYMBOL, LongStrat, START, END)
 
     print(SYMBOL)
     print('-'*20)
@@ -131,4 +135,4 @@ def main(SYMBOL, START, END):
 
 
 if __name__ == '__main__':
-    main('DIS', datetime(2019, 1, 2), datetime(2020, 4, 9))
+    main('BA', datetime(2019, 1, 2), datetime(2020, 4, 9))

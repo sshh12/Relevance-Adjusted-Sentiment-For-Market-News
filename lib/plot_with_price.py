@@ -110,4 +110,4 @@ def main(symbol, plot=True):
 
 
 if __name__ == "__main__":
-    main('GE', plot=False)
+    main('NIO', plot=False)
