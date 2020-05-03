@@ -1,6 +1,7 @@
 import backtrader as bt
 import pandas as pd
 import numpy as np
+import random
 import tqdm
 import os
 
@@ -8,9 +9,13 @@ from collections import defaultdict
 from datetime import datetime
 
 
-def _parse_rsentiment_data_and_make_strat(symbol):
+def _parse_rsentiment_data_and_make_strat(symbol, adjusted=True):
 
-    rs_df = pd.read_csv(os.path.join('data', 'prices-by-date-{}.csv'.format(symbol)))
+    data_fn = 'prices-by-date-{}.csv'.format(symbol)
+    if not adjusted:
+        data_fn = 'unadjusted-' + data_fn
+
+    rs_df = pd.read_csv(os.path.join('data', data_fn))
     drop_cols = [
         'Unnamed: 0', 'low', 'close', 'volume', 'lg_close', 'lg_open', 'lg_yopen_to_yclose',
         'lg_topen_to_tclose', 'lg_tmopen_to_tmclose', 'lg_yclose_tclose',
@@ -66,6 +71,18 @@ class LongStrat(bt.Strategy):
         self.order_target_percent(data=self.data0, target=1)
 
 
+class RandomStrat(bt.Strategy):
+    
+    params = (('thresh', 0.0), ('multiplier', 1), ('method', 'rand'))
+    
+    def __init__(self):
+        pass
+            
+    def next(self):
+        target = random.choice([0, 1])
+        self.order_target_percent(data=self.data0, target=target)
+
+
 def _simulate_return(sym, strat, start, end, show=False, **kwargs):
     cerebro = bt.Cerebro()
     feed = bt.feeds.GenericCSVData(dataname='data/PRICE_{}.csv'.format(sym),
@@ -81,11 +98,12 @@ def _simulate_return(sym, strat, start, end, show=False, **kwargs):
     return data['rtot']
 
 
-def main(SYMBOL, START, END):
+def analyze_returns(symbol, start, end, adjusted=True, show=False):
 
-    print('Simulating', SYMBOL, START, END)
+    print('Simulating', symbol, start, end)
 
-    rs_df, methods, RSSignal, RSStrat = _parse_rsentiment_data_and_make_strat(SYMBOL)
+    rs_df, methods, RSSignal, RSStrat = \
+        _parse_rsentiment_data_and_make_strat(symbol, adjusted=adjusted)
     
     data = {}
     mx = -9e9
@@ -95,7 +113,7 @@ def main(SYMBOL, START, END):
                 exp_id = (method, thresh, multi)
                 if exp_id in data:
                     continue
-                ret = _simulate_return(SYMBOL, RSStrat, START, END, 
+                ret = _simulate_return(symbol, RSStrat, start, end, 
                     method=method, multiplier=multi, thresh=thresh)
                 mx = max(mx, ret)
                 data[exp_id] = ret
@@ -103,18 +121,27 @@ def main(SYMBOL, START, END):
     results = defaultdict(list)
     best_result = list(data.keys())[0]
 
-    print('Aggregating...')
+    print('Aggregating', len(data), 'results...')
 
     for (name, thresh, multi), ret in data.items():
         temp, mod = (name.split('_') + [""])[:2]
         ids = temp.split('-')
-        a_method = ids[6]
-        a_type = ids[7]
-        c_num_emb = int(ids[9])
-        c_num_hidden = int(ids[10])
-        c_acc = float(ids[12])
-        s_method = ids[16]
-        s_type = ids[17]
+        if adjusted:
+            a_method = ids[6]
+            a_type = ids[7]
+            c_num_emb = int(ids[9])
+            c_num_hidden = int(ids[10])
+            c_acc = float(ids[12])
+            s_method = ids[16]
+            s_type = ids[17]
+        else:
+            a_method = 'none'
+            a_type = 'none'
+            c_num_emb = 0
+            c_num_hidden = 0
+            c_acc = 0
+            s_method = ids[4]
+            s_type = ids[5]
         results['0-a_method-' + a_method].append(ret)
         results['1-s_method-' + s_method].append(ret)
         results['2-a_type-' + a_type].append(ret)
@@ -122,17 +149,24 @@ def main(SYMBOL, START, END):
         results['4-c_num_emb-' + str(c_num_emb)].append(ret)
         if ret > data[best_result]:
             best_result = (name, thresh, multi)
-        results['5-long'] = _simulate_return(SYMBOL, LongStrat, START, END)
+    results['5-long'] = _simulate_return(symbol, LongStrat, start, end)
+    results['6-rand'] = np.median([
+        _simulate_return(symbol, RandomStrat, start, end)
+        for _ in range(20) 
+    ])
 
-    print(SYMBOL)
+    print(symbol)
     print('-'*20)
     for k in sorted(results):
         print(k, int(round(np.max(results[k]) * 100)))
     print('-'*20)
 
     print('Best', best_result)
-    _simulate_return(SYMBOL, RSStrat, START, END, show=True, method=best_result[0], thresh=best_result[1], multiplier=best_result[2])
+    _simulate_return(symbol, RSStrat, start, end, show=show, 
+        method=best_result[0], 
+        thresh=best_result[1], 
+        multiplier=best_result[2])
 
 
 if __name__ == '__main__':
-    main('BA', datetime(2019, 1, 2), datetime(2020, 4, 9))
+    analyze_returns('NFLX', datetime(2019, 1, 2), datetime(2020, 4, 9), adjusted=True, show=True)

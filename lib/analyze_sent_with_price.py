@@ -28,6 +28,9 @@ class RSentimentScore:
     def load(self):
         self.model = load_model(self.relv_model_fn)
         self.art_embs = np.load(self.art_embs_fn)
+        self.load_sent()
+    
+    def load_sent(self):
         self.sent = load_sentiment(self.sent_fn)
 
     def score(self, symbol, art_idxs):
@@ -46,21 +49,37 @@ class RSentimentScore:
         relv_sentiment = sentiment * relv
         return np.mean(relv_sentiment)
 
+    def sent_only_score(self, symbol, art_idxs):
+        if len(art_idxs) == 0:
+            return 0
+        sentiment = self.sent[art_idxs]
+        valid_sent_idxs = (sentiment != -1000)  
+        sentiment = sentiment[valid_sent_idxs]
+        return np.mean(sentiment)
+
     def get_id(self):
         return os.path.splitext(os.path.basename(self.relv_model_fn))[0] \
             + '-' + os.path.splitext(os.path.basename(self.sent_fn))[0]
 
 
-def main(symbol, plot=True):
+def analyze_sent_scores(symbol, adjusted=True, plot=True):
+
+    print('Analyzing', symbol, 'sentiment...')
 
     mkdir(os.path.join('data', 'plot_ckpt'))
 
     articles = sql_read_articles(only_labeled=True)
     article_idxs_by_date = defaultdict(list)
+    arts_cnt = 0
     for i, article in enumerate(articles):
+        if not adjusted and article[1] != symbol:
+            continue
         article_idxs_by_date[article[3]].append(i)
+        arts_cnt += 1
     dates = sorted(article_idxs_by_date)
     dates = [d for d in dates if d.startswith('2019') or d.startswith('2020')]
+
+    print('Using', arts_cnt, 'articles.')
 
     with open(COMP_MAP_FN, 'rb') as f:
         sym_to_idx = pickle.load(f)
@@ -68,23 +87,38 @@ def main(symbol, plot=True):
     plot_data = defaultdict(list)
     plot_data['date'] = dates
     names = []
-    for relv_model_fn in RELV_MODELS:
+    if adjusted:
+        # compute relevant sentiment
+        for relv_model_fn in RELV_MODELS:
+            for sentiment_fn in SENTIMENT_FNS:
+                RS = RSentimentScore(sym_to_idx, relv_model_fn, sentiment_fn)
+                name = RS.get_id()
+                names.append(name)
+                ckpt_fn = os.path.join('data', 'plot_ckpt', symbol + '-' + name + '.npy')
+                if not os.path.exists(ckpt_fn):
+                    print('Computing', name)
+                    RS.load()
+                    scores = []
+                    for date in tqdm.tqdm(dates):
+                        score = RS.score(symbol, article_idxs_by_date[date])
+                        scores.append(score)
+                    np.save(ckpt_fn, scores)
+                else:
+                    print('Already computed...skipping.')
+                    scores = list(np.load(ckpt_fn))
+                plot_data[name] = scores
+    else:
+        # just average sentiment
         for sentiment_fn in SENTIMENT_FNS:
-            RS = RSentimentScore(sym_to_idx, relv_model_fn, sentiment_fn)
+            RS = RSentimentScore(sym_to_idx, 'none', sentiment_fn)
             name = RS.get_id()
             names.append(name)
-            ckpt_fn = os.path.join('data', 'plot_ckpt', symbol + '-' + name + '.npy')
-            if not os.path.exists(ckpt_fn):
-                print('Computing', name)
-                RS.load()
-                scores = []
-                for date in tqdm.tqdm(dates):
-                    score = RS.score(symbol, article_idxs_by_date[date])
-                    scores.append(score)
-                np.save(ckpt_fn, scores)
-            else:
-                print('Already computed...skipping.')
-                scores = list(np.load(ckpt_fn))
+            print('Computing', name)
+            RS.load_sent()
+            scores = []
+            for date in tqdm.tqdm(dates):
+                score = RS.sent_only_score(symbol, article_idxs_by_date[date])
+                scores.append(score)
             plot_data[name] = scores
 
     prices = download_prices(symbol)
@@ -95,12 +129,16 @@ def main(symbol, plot=True):
             df[name + '_ma' + str(win)] = df[name].rolling(win).mean()
         df[name + '_cumsum'] = df[name].cumsum()
 
+    save_fn_prefix = ''
+    if not adjusted:
+        save_fn_prefix = 'unadjusted-'
+
     df_corr = df.merge(prices, on='date')
-    df_corr.to_csv(os.path.join('data', 'prices-by-date-' + symbol + '.csv'))
+    df_corr.to_csv(os.path.join('data', save_fn_prefix + 'prices-by-date-' + symbol + '.csv'))
 
     price_cols = [c for c in prices.columns if c != 'date']
     corr_table = df_corr.corr()
-    corr_table[price_cols].to_csv(os.path.join('data', 'price-corr-' + symbol + '.csv'))
+    corr_table[price_cols].to_csv(os.path.join('data', save_fn_prefix + 'price-corr-' + symbol + '.csv'))
 
     if plot:
         df_plot = df.merge(prices[['date', 'lg_topen_to_tclose']], on='date')
@@ -110,4 +148,4 @@ def main(symbol, plot=True):
 
 
 if __name__ == "__main__":
-    main('NIO', plot=False)
+    analyze_sent_scores('NFLX', adjusted=True, plot=False)
