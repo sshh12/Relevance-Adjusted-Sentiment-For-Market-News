@@ -5,6 +5,7 @@ import random
 import sqlite3
 import signal
 import glob
+import umap
 import re
 import os
 
@@ -143,8 +144,11 @@ def download_prices(symb, key='KOZNM03XM806URDU', refresh=False):
     fn = os.path.join('data', 'PRICE_' + symb + '.csv')
     if not os.path.exists(fn) or refresh:
         df = pd.read_csv('https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&outputsize=full&symbol={}&apikey={}&datatype=csv'.format(symb, key))
-        df = df.rename(columns={'timestamp': 'date'})
-        df.sort_values('date', ascending=True, inplace=True)
+        try:
+            df = df.rename(columns={'timestamp': 'date'})
+            df.sort_values('date', ascending=True, inplace=True)
+        except KeyError:
+            raise Exception('Rate limited.')
         df.to_csv(fn, index=False)
     df = pd.read_csv(fn)
     df['lg_close'] = df['close'].apply(np.log)
@@ -155,6 +159,12 @@ def download_prices(symb, key='KOZNM03XM806URDU', refresh=False):
     df['lg_yclose_tclose'] = df['lg_close'] - df['lg_close'].shift(1)
     df['lg_tclose_tmclose'] = df['lg_close'].shift(-1) - df['lg_close']
     return df
+
+
+def reduce_embs(embs):
+    reducer = umap.UMAP()
+    rembs = reducer.fit_transform(embs)
+    return reducer, rembs
 
 
 def _init_worker():
