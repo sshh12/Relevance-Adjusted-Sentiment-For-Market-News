@@ -29,16 +29,15 @@ class MidpointNormalize(colors.Normalize):
 def _load_price_data(symbols):
     df_all = None
     for sym in symbols:
-        if sym in ['LYFT', 'ONEM', 'WORK']:
-            # omit late ipos
-            continue
         df = download_prices(sym).set_index('date')
         df = df[['lg_tclose_tmclose']]
         df = df.rename(columns={'lg_yclose_tclose': sym})
         if df_all is None:
             df_all = df
         else:
-            df_all = pd.merge(df_all, df, left_index=True, right_index=True)
+            merged_df_all = pd.merge(df_all, df, left_index=True, right_index=True)
+            if len(merged_df_all.index) >= 365:
+                df_all = merged_df_all
     dates = list(df_all.index)
     return dates, df_all
 
@@ -56,8 +55,8 @@ def _gen_frame(date_idx, date, prices, rembs, blur=25):
     if date_idx >= 3:
         # smoothing
         price_day = (
-            prices[date_idx-2] * 0.2 + 
-            prices[date_idx-1] * 0.3 + 
+            prices[date_idx - 2] * 0.2 + 
+            prices[date_idx - 1] * 0.3 + 
             prices[date_idx] * 0.5
         )
     for i, price in enumerate(price_day):
@@ -69,7 +68,8 @@ def _gen_frame(date_idx, date, prices, rembs, blur=25):
         grid[y, x] = np.square(price) * np.sign(price)
 
     # cool effect
-    grid = gaussian_filter(grid, sigma=blur)
+    if blur > 0:
+        grid = gaussian_filter(grid, sigma=blur)
 
     plt.rcParams["figure.figsize"] = (20, 20)
     frame = plt.gca()
@@ -98,15 +98,15 @@ def heatmap_vis(embs_substring, **kwargs):
         # see what data is available
         try:
             download_prices(sym)
-        except:
-            break
-        else:
             symbols.append(sym)
+        except:
+            pass
 
     print('Loaded', len(sym_to_idx), 'companies, using', len(symbols))
     print('Saving frames to', SAVE_DIR)
 
     dates, df = _load_price_data(symbols)
+    print('From', dates[0], 'to', dates[-1])
 
     prices = df.to_numpy()
     prices = (prices - prices.mean(axis=0)) / prices.std(axis=0)
