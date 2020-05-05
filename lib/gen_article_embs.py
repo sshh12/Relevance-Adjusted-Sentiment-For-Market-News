@@ -1,5 +1,3 @@
-
-
 from dataset.util import sql_read_articles, sql_read_companies_dict
 from embs.articles import EMBEDDINGS
 import pickle

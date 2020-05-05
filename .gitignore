@@ -2,3 +2,5 @@
 *.sqlite*
 *.ipynb_*
 data/*
+debug.log
+*.xlsx
