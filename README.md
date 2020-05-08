@@ -1,12 +1,12 @@
 # Relevance-Adjusted Sentiment For Market News
 
-> TODO Abstract
+> Media sentiment has been an important tool for investing over the last few decades. This paper addresses the issue of sentiment relevance when trying to measure attitudes with respect to a specific company. We analyze various methods for computing embeddings and sentiment using both classical and deep learning techniques to produce a more viable relevance-adjusted metric. Experimental results show intuitive changes in sentiment for the same news but different companies, interpretable company embeddings, as well as correlations with a company's stock price.
 
 ![srelv_scores_overtime](https://user-images.githubusercontent.com/6625384/81112379-2dc82300-8ee4-11ea-8a60-68ee80046bb4.png)
 
 ## Full Usage
 
-#### Generate Dataset
+#### Generate a Dataset
 
 Add company symbols to `SYMBOLS` in `lib/dataset/config.py`.
 
@@ -34,12 +34,13 @@ Compute the historical daily adjusted sentiment for a company.
 
 * `$ python lib\analyze_heatmap.py`
 * `$ python lib\analyze_returns.py`
+* `$ python lib\analyze_corr_and_comp_embs.py`
 
 ## Data
 
 The original dataset is available on request.
 
-Misc project files and historical daily relevance scores can be found on [google drive](https://drive.google.com/drive/folders/1st5B8ytoQ0DovkvXo09HK-m3ass-Yb9r?usp=sharing).
+Misc. project files and historical relavance-adjusted sentiment scores can be found on [google drive](https://drive.google.com/drive/folders/1st5B8ytoQ0DovkvXo09HK-m3ass-Yb9r?usp=sharing).
 
 ## Help
 

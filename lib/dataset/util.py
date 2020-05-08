@@ -194,6 +194,7 @@ def sql_attempt(conn, cur, sql):
 
 
 def sql_connect(group=''):
+    mkdir('data')
     actual_uri = DATABASE_URI
     if group:
         b, a = DATABASE_URI.split('.')
