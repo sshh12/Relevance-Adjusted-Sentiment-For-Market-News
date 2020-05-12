@@ -2,7 +2,9 @@
 
 > Media sentiment has been an important tool for investing over the last few decades. This paper addresses the issue of sentiment relevance when trying to measure attitudes with respect to a specific company. We analyze various methods for computing embeddings and sentiment using both classical and deep learning techniques to produce a more viable relevance-adjusted metric. Experimental results show intuitive changes in sentiment for the same news but different companies, interpretable company embeddings, as well as correlations with a company's stock price.
 
-![srelv_scores_overtime](https://user-images.githubusercontent.com/6625384/81112379-2dc82300-8ee4-11ea-8a60-68ee80046bb4.png)
+[View Paper](https://github.com/sshh12/Relevance-Adjusted-Sentiment-For-Market-News/blob/master/paper/paper.pdf)
+
+![monies](https://user-images.githubusercontent.com/6625384/81488295-a9033f00-922c-11ea-9d31-e6431d61f4d5.png)
 
 ## Full Usage
 
